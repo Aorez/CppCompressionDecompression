@@ -1,0 +1,520 @@
+// CppCompressionDecompressionDlg.cpp: 实现文件
+//
+
+#include "pch.h"
+#include "framework.h"
+#include "CppCompressionDecompression.h"
+#include "CppCompressionDecompressionDlg.h"
+#include "afxdialogex.h"
+
+#include<bits/stdc++.h>
+
+#ifdef _DEBUG
+#define new DEBUG_NEW
+#endif
+
+std::vector<std::string> beforeText0;//源文件文本
+std::vector<std::string> compressionText;//压缩空格和注释后的文本
+std::string compressionText2;//编码压缩文本（一行）
+int nowOpen = 0;
+std::string decompressionTextBefore;//解压之前的文本
+std::vector<std::string> decompressionTextAfter;//解压后的文本
+
+//, ;  ()  {  }  #   ^ ? : .[] + -*/ % = > < !~| &
+//&&  ||  ==  >=  <=  !=  ++  --  ::  <<  >>   +=  -=  *=  /=  %=  &=  ^=  ->
+//换行用-1表示，空格用-2表示
+
+std::set<std::string> numbers = { "0", "1", "2", "3", "4", "5",
+"6", "7", "8", "9" };
+
+std::set<std::string> unaryOperator = { ",", ";", "(", ")", "{", "}", "#",
+"^", "?", ":", ".", "[", "]", "+", "-", "*", "/", "%", "=", ">", "<", "!",
+"~", "|", "&" };
+
+std::set<std::string> operator0 = { ",", ";", "(", ")", "{", "}", "#",
+"?", ".", "[", "]", "~" };
+
+std::set<std::string> binaryOperator = { "&&", "||", "++", ">=", "<=", "!=",
+"++", "--", "::", "<<", ">>", "+=", "-=", "*=", "/=", "%=", "&=",
+"^=", "->", "=="};
+
+std::set<std::string> words = { "asm", "auto", "bool", "break", "case", "catch", "char", "cin", "class", "const", "const_cast", "continue", "cout", "default", "define", "delete", "do", "double", "dynamic_cast", "else", "endl", "enum", "except", "explicit", "export", "extern", "false", "finally", "float", "for", "friend", "goto", "if", "include", "inline", "int", "iostream", "long", "main", "mutable", "namespace", "new", "operator", "private", "protected", "public", "register", "return", "short", "signed", "sizeof", "static", "static_cast", "std", "string", "struct", "switch", "template", "this", "throw", "true", "try", "typedef", "typename", "union", "unsigned", "using", "virtual", "void", "volatile", "while", };
+
+std::map<std::string, int> ttoc;//text to code
+std::map<int, std::string> ctot;//code to text
+
+//std::set<std::string> keywords = { "asm", "auto", "bool", "break", "case",
+//"catch", "char", "class", "const", "const_cast", "continue", "default", "delete",
+//"do", "double", "dynamic_cast", "else", "enum", "except", "explicit", "export", "extern",
+//"false", "finally", "float", "for", "friend", "goto", "if",
+//"inline", "int", "long", "mutable", "namesapce", "new",
+//"operator", "private", "protected", "public", "register",
+//"return", "short", "signed", "sizeof", "static", "static_cast", "struct",
+//"string", "switch", "template", "this", "throw", "true", "try",
+//"typedef", "typename", "union", "unsigned", "using", "virtual",
+//"void", "volatile", "while", "std", "include", "define", "iostream", "cin", "cout",
+//"main"};
+
+
+/*
+空格前后的字符
+有可能是数字，字母，符号
+1 =
+= 1
+t e
+e =
+= e
+下划线归在字母里面
+*/
+
+void dictInit() {
+	int n = 2;
+	for (auto i : numbers) {
+		ttoc.insert(std::pair<std::string, int>(i, n));
+		ctot.insert(std::pair<int, std::string>(n, i));
+		n++;
+	}
+	for (auto i : unaryOperator) {
+		ttoc.insert(std::pair<std::string, int>(i, n));
+		ctot.insert(std::pair<int, std::string>(n, i));
+		n++;
+	}
+	for (auto i : binaryOperator) {
+		ttoc.insert(std::pair<std::string, int>(i, n));
+		ctot.insert(std::pair<int, std::string>(n, i));
+		n++;
+	}
+	for (auto i : words) {
+		ttoc.insert(std::pair<std::string, int>(i, n));
+		ctot.insert(std::pair<int, std::string>(n, i));
+		n++;
+	}
+}
+
+void compression2() {
+	compressionText2 = "";
+	std::vector<std::string> compressionText1 = compressionText;
+	for (int i = 0; i < compressionText1.size(); i++) {
+		for (int j = 0; j < compressionText1[i].size(); j++) {
+			char nowChar = compressionText1[i][j];
+			std::string nowWord = "";
+			if (nowChar == ' ') {
+				compressionText2 += std::string(1, '1') + " ";
+			}
+			//如果是数字，数字单独编码
+			else if (nowChar > 47 && nowChar <= 57) {
+				compressionText2 += std::to_string(ttoc[std::string(1, nowChar)]) + " ";
+			}
+			//如果是字母，下划线
+			else if (nowChar >= 65 && nowChar <= 90 || nowChar >= 97 && nowChar <= 122 || nowChar == '_') {
+				nowWord += nowChar;
+				while (j + 1 < compressionText1[i].size()) {
+					nowChar = compressionText1[i][j + 1];
+					//找到完整单词
+					if (nowChar >= 65 && nowChar <= 90 || nowChar >= 97 && nowChar <= 122 || nowChar == '_') {
+						nowWord += nowChar;
+						j++;
+						continue;
+					}
+					else {
+						//不是关键字
+						if (words.find(nowWord) == words.end()) {
+							compressionText2 += nowWord + " ";
+						}
+						//是关键字
+						else {
+							compressionText2 += std::to_string(ttoc[nowWord]) + " ";
+						}
+						break;
+					}
+				}
+			}
+			//如果是二元运算符的第一个
+			else if (operator0.find(std::string(1, nowChar)) != operator0.end()) {
+				if (j + 1 < compressionText1[i].size()) {
+					std::string nowStr = "" + nowChar + compressionText1[i][j + 1];
+					//如果该二元运算符存在
+					if (binaryOperator.find(nowStr) != binaryOperator.end()) {
+						compressionText2 += std::to_string(ttoc[nowStr]) + " ";
+						j++;
+					}
+					//该二元运算符不存在，说明是一元运算符
+					else {
+						compressionText2 += std::to_string(ttoc[std::string(1, nowChar)]) + " ";
+					}
+				}
+				else {
+					compressionText2 += std::to_string(ttoc[std::string(1, nowChar)]) + " ";
+				}
+			}
+			//如果在一元运算符的集合里
+			else if (unaryOperator.find(std::string(1, nowChar)) != unaryOperator.end()) {
+				compressionText2 += std::to_string(ttoc[std::string(1, nowChar)]) + " ";
+			}
+		}
+		compressionText2 += "0";
+	}
+	compressionText2 += "0";
+	//std::cout << compressionText2 << std::endl;
+}
+
+void compression() {
+	//beforeText保存原文件的每行内容
+	//compressionText保存第一次压缩后的文件的每行内容
+	compressionText.clear();
+	std::vector<std::string> beforeText = beforeText0;
+	for (int i = 0; i < beforeText.size(); i++) {
+loopi:	std::string beforeStr = beforeText[i];
+		std::string afterStr = "";
+		if (beforeStr.size() <= 0) {
+			continue;
+		}
+		else if (beforeStr.size() == 1) {
+			if (beforeStr == "{" || beforeStr == "}") {
+				afterStr = beforeStr;
+				compressionText.push_back(afterStr);
+				continue;
+			}
+		}
+		//该行的内容beforeStr的字数大于1
+		else {
+			//遍历每个字符
+			for (int j = 0; j < beforeStr.size(); j++) {
+				if (beforeStr[j] == '\t') {
+					continue;
+				}
+				//如果此时的字符为'/'
+				//有可能是注释
+				else if (beforeStr[j] == '/') {
+					if (j + 1 < beforeStr.size()) {
+						//并且下一个字符存在且为'/'
+						if (beforeStr[j + 1] == '/') {
+							break;
+						}
+						//下一个字符存在且为'*'
+						else if (beforeStr[j + 1] == '*') {
+							int k;
+							//继续遍历这一行的剩余内容
+							for (k = j + 2; k + 1 < beforeStr.size(); k++) {
+								//如果这一行存在"*/"，说明注释在这一行结束
+								if (beforeStr[k] == '*' && beforeStr[k + 1] == '/') {
+									j = k + 1;
+									break;
+								}
+							}
+							//这个if条件说明注释在后面的行中才结束
+							if (k + 1 == beforeStr.size() || j + 2 == beforeStr.size()) {
+								//先保存这一行的内容
+								if (afterStr.size() > 0) {
+									compressionText.push_back(afterStr);
+								}
+								//继续遍历后面行的内容，找到"*/"
+								for (int ik = i + 1; ik < beforeText.size(); ik++) {
+									for (int jk = 0; jk + 1 < beforeText[ik].size(); jk++) {
+										//把这一行"*/"以及前面的内容都去掉，后面的内容重新放到beforeText对应下标中
+										if (beforeText[ik][jk] == '*' && beforeText[ik][jk + 1] == '/') {
+											std::string beforeStr2 = "";
+											for (int kk = jk + 2; kk < beforeText[ik].size(); kk++) {
+												beforeStr2 += beforeText[ik][kk];
+											}
+											beforeText[ik] = beforeStr2;
+											i = ik;
+											//继续最外层循环
+											goto loopi;
+										}
+									}
+								}
+							}
+						}
+						else {
+							afterStr += beforeStr[j];
+						}
+					}
+				}
+				//压缩空格
+				else if (beforeStr[j] == ' ') {
+					if (j == 0) {
+						continue;
+					}
+					else if (beforeStr[j - 1] == ' ') {
+						continue;
+					}
+					else if (j + 1 == beforeStr.size()) {
+						continue;
+					}
+					//不是第一个字符，也不是最后一个字符，同时不是空格
+					else {
+						char nowChar = beforeStr[j - 1];
+						//如果nowChar前面是这些字符
+						if (nowChar >= 65 && nowChar <= 90 || nowChar >= 97 && nowChar <= 122 || nowChar > 47 && nowChar <= 57 || nowChar == '_') {
+							nowChar = beforeStr[j + 1];
+							//如果nowChar后面是这些字符
+							if (nowChar >= 65 && nowChar <= 90 || nowChar >= 97 && nowChar <= 122 || nowChar > 47 && nowChar <= 57 || nowChar == '_') {
+								afterStr += ' ';
+							}
+						}
+					}
+				}
+				else {
+					afterStr += beforeStr[j];
+				}
+			}
+			if (afterStr.size() > 0) {
+				compressionText.push_back(afterStr);
+			}
+		}
+
+	}
+}
+
+void decompression() {
+	//相当于split(" ")
+	std::vector<std::string> decompressionCodes;
+	std::string codestring = "";
+
+	//std::cout << decompressionTextBefore << std::endl;
+	
+	for (int i = 0; i < decompressionTextBefore.size(); i++) {
+		if (decompressionTextBefore[i] == ' ') {
+			if (codestring.size() > 0) {
+				decompressionCodes.push_back(codestring);
+				codestring = "";
+			}
+		}
+		else {
+			codestring += decompressionTextBefore[i];
+		}
+	}
+	//for (int i = 0; i < decompressionCodes.size(); i++) {
+	//	std::cout << decompressionCodes[i] << " ";
+	//}
+	std::cout << std::endl;
+	decompressionTextAfter.clear();
+	std::string textstring = "";
+	for (int i = 0; i < decompressionCodes.size(); i++) {
+		//空格
+		if (decompressionCodes[i] == "1") {
+			textstring += " ";
+		}
+		else if (decompressionCodes[i] == "0") {
+			decompressionTextAfter.push_back(textstring);
+			textstring = "";
+		}
+		else if (ctot.find(atoi(decompressionCodes[i].c_str())) == ctot.end()) {
+			textstring += decompressionCodes[i];
+		}
+		else {
+			textstring += ctot[atoi(decompressionCodes[i].c_str())];
+		}
+	}
+}
+
+// CCppCompressionDecompressionDlg 对话框
+
+
+
+CCppCompressionDecompressionDlg::CCppCompressionDecompressionDlg(CWnd* pParent /*=nullptr*/)
+	: CDialogEx(IDD_CPPCOMPRESSIONDECOMPRESSION_DIALOG, pParent)
+{
+	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+}
+
+void CCppCompressionDecompressionDlg::DoDataExchange(CDataExchange* pDX)
+{
+	CDialogEx::DoDataExchange(pDX);
+}
+
+BEGIN_MESSAGE_MAP(CCppCompressionDecompressionDlg, CDialogEx)
+	ON_WM_PAINT()
+	ON_WM_QUERYDRAGICON()
+	ON_BN_CLICKED(IDC_BUTTON_OPEN, &CCppCompressionDecompressionDlg::OnBnClickedButtonOpen)
+	ON_BN_CLICKED(IDC_BUTTON_COMPRESSION, &CCppCompressionDecompressionDlg::OnBnClickedButtonCompression)
+	ON_BN_CLICKED(IDC_BUTTON_COMPRESS2, &CCppCompressionDecompressionDlg::OnBnClickedButtonCompress2)
+	ON_WM_CLOSE()
+	ON_BN_CLICKED(IDC_BUTTON_OPEN2, &CCppCompressionDecompressionDlg::OnBnClickedButtonOpen2)
+	ON_BN_CLICKED(IDC_BUTTON_DECOMPRESSION, &CCppCompressionDecompressionDlg::OnBnClickedButtonDecompression)
+END_MESSAGE_MAP()
+
+
+// CCppCompressionDecompressionDlg 消息处理程序
+
+BOOL CCppCompressionDecompressionDlg::OnInitDialog()
+{
+	CDialogEx::OnInitDialog();
+
+	// 设置此对话框的图标。  当应用程序主窗口不是对话框时，框架将自动
+	//  执行此操作
+	SetIcon(m_hIcon, TRUE);			// 设置大图标
+	SetIcon(m_hIcon, FALSE);		// 设置小图标
+
+	// TODO: 在此添加额外的初始化代码
+	m_static.SubclassDlgItem(IDC_STATIC, this);
+	m_editFont.CreatePointFont(300, _T(""));
+	m_static.SetFont(&m_editFont);
+	dictInit();
+	//AllocConsole();//打开测试的输出窗口
+	//freopen("CONOUT", "w", stdout);
+
+	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
+}
+
+// 如果向对话框添加最小化按钮，则需要下面的代码
+//  来绘制该图标。  对于使用文档/视图模型的 MFC 应用程序，
+//  这将由框架自动完成。
+
+void CCppCompressionDecompressionDlg::OnPaint()
+{
+	if (IsIconic())
+	{
+		CPaintDC dc(this); // 用于绘制的设备上下文
+
+		SendMessage(WM_ICONERASEBKGND, reinterpret_cast<WPARAM>(dc.GetSafeHdc()), 0);
+
+		// 使图标在工作区矩形中居中
+		int cxIcon = GetSystemMetrics(SM_CXICON);
+		int cyIcon = GetSystemMetrics(SM_CYICON);
+		CRect rect;
+		GetClientRect(&rect);
+		int x = (rect.Width() - cxIcon + 1) / 2;
+		int y = (rect.Height() - cyIcon + 1) / 2;
+
+		// 绘制图标
+		dc.DrawIcon(x, y, m_hIcon);
+	}
+	else
+	{
+		CDialogEx::OnPaint();
+	}
+}
+
+//当用户拖动最小化窗口时系统调用此函数取得光标
+//显示。
+HCURSOR CCppCompressionDecompressionDlg::OnQueryDragIcon()
+{
+	return static_cast<HCURSOR>(m_hIcon);
+}
+
+
+
+
+
+
+void CCppCompressionDecompressionDlg::OnBnClickedButtonOpen()
+{
+	// TODO: 在此添加控件通知处理程序代码
+	
+	//输出关键字数量
+	/*
+	std::string s = std::to_string(int(a.size()));
+	CString ss;
+	ss = s.c_str();
+	MessageBox(ss);*/
+	
+	CString strFileName;//保存路径
+	CFileDialog opendlg(TRUE, _T("*"), /*_T("*.txt")*/NULL, OFN_OVERWRITEPROMPT, _T("(*.*;)|*.*||"), NULL);
+	if (opendlg.DoModal() == IDOK)
+	{
+		strFileName = opendlg.GetPathName();
+		USES_CONVERSION;
+		std::string filename(W2A(strFileName));
+		std::ifstream ifs;
+		ifs.open(filename, std::ios::in);
+		std::string aline = "";
+		std::string alllines = "";
+		beforeText0.clear();
+		while (!ifs.eof()) {
+			getline(ifs, aline);
+			beforeText0.push_back(aline);
+			alllines += aline + "\r\n";
+			aline = "";
+		}
+		CString Calllines;
+		Calllines = alllines.c_str();
+		SetDlgItemText(IDC_EDIT_BEFORE, Calllines);
+	}
+
+
+}
+
+
+
+
+
+void CCppCompressionDecompressionDlg::OnBnClickedButtonCompression()
+{
+	// TODO: 在此添加控件通知处理程序代码
+
+	compression();
+	std::string alllines = "";
+	for (auto i : compressionText) {
+		alllines += i + "\r\n";
+	}
+	CString Calllines;
+	Calllines = alllines.c_str();
+	SetDlgItemText(IDC_EDIT_AFTER, Calllines);
+}
+
+
+void CCppCompressionDecompressionDlg::OnBnClickedButtonCompress2()
+{
+	// TODO: 在此添加控件通知处理程序代码
+	compression();
+	//std::cout << compressionText2 << std::endl;
+	compression2();
+	CString CcompressionText2;
+	CcompressionText2 = compressionText2.c_str();
+	SetDlgItemText(IDC_EDIT_AFTER, CcompressionText2);
+
+}
+
+
+void CCppCompressionDecompressionDlg::OnClose()
+{
+	// TODO: 在此添加消息处理程序代码和/或调用默认值
+	//FreeConsole();
+	//释放控制台窗口程序
+	CDialogEx::OnClose();
+}
+
+
+void CCppCompressionDecompressionDlg::OnBnClickedButtonOpen2()
+{
+	// TODO: 在此添加控件通知处理程序代码
+
+	CString strFileName;//保存路径
+	CFileDialog opendlg(TRUE, _T("*"), /*_T("*.txt")*/NULL, OFN_OVERWRITEPROMPT, _T("(*.*;)|*.*||"), NULL);
+	if (opendlg.DoModal() == IDOK)
+	{
+		strFileName = opendlg.GetPathName();
+		USES_CONVERSION;
+		std::string filename(W2A(strFileName));
+		std::ifstream ifs;
+		ifs.open(filename, std::ios::in);
+		std::string aline = "";
+		decompressionTextBefore = "";
+		while (!ifs.eof()) {
+			getline(ifs, aline);
+			decompressionTextBefore += aline;
+			aline = "";
+		}
+		CString Calllines;
+		Calllines = decompressionTextBefore.c_str();
+		SetDlgItemText(IDC_EDIT_BEFORE, Calllines);
+	}
+	//std::cout << decompressionTextBefore << std::endl;
+}
+
+
+void CCppCompressionDecompressionDlg::OnBnClickedButtonDecompression()
+{
+	// TODO: 在此添加控件通知处理程序代码
+	decompression();
+	std::string decompressionStr = "";
+	for (int i = 0; i < decompressionTextAfter.size(); i++) {
+		decompressionStr += decompressionTextAfter[i] + "\r\n";
+	}
+	CString CdecompressionStr;
+	CdecompressionStr = decompressionStr.c_str();
+	SetDlgItemText(IDC_EDIT_AFTER, CdecompressionStr);
+
+}
